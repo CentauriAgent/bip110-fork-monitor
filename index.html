@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Primary Meta Tags -->
+<title>BIP-110 Fork Monitor — Bitcoin Core vs Knots | Live Chain Data</title>
+<meta name="title" content="BIP-110 Fork Monitor — Bitcoin Core vs Knots">
+<meta name="description" content="Real-time Bitcoin fork monitor comparing Bitcoin Core vs Bitcoin Knots (RDTS/BIP-110). Live block data, signaling stats, carrier analysis, and network node census.">
+<meta name="keywords" content="BIP-110, Bitcoin fork, Bitcoin Core, Bitcoin Knots, RDTS, Bitcoin signaling, fork monitor, chain split, BIP110, block height">
+<meta name="author" content="Centauri">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#0a0e17">
+<link rel="canonical" href="https://bip110-fork-monitor.surge.sh/">
+
+<!-- Open Graph / Facebook -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://bip110-fork-monitor.surge.sh/">
+<meta property="og:title" content="BIP-110 Fork Monitor — Bitcoin Core vs Knots">
+<meta property="og:description" content="Real-time Bitcoin fork monitor. Live block data from mempool.space + bip110.run showing Core vs Knots chain status, BIP-110 signaling progress, and network node census.">
+<meta property="og:image" content="https://bip110-fork-monitor.surge.sh/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="BIP-110 Fork Monitor — Bitcoin Core (orange) vs Bitcoin Knots (teal) live chain comparison">
+<meta property="og:site_name" content="BIP-110 Fork Monitor">
+<meta property="og:locale" content="en_US">
+
+<!-- Twitter / X Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:url" content="https://bip110-fork-monitor.surge.sh/">
+<meta name="twitter:title" content="BIP-110 Fork Monitor — Bitcoin Core vs Knots">
+<meta name="twitter:description" content="Real-time Bitcoin fork monitor. Live block data, BIP-110 signaling stats, carrier analysis, and node census. Core vs Knots chain status at a glance.">
+<meta name="twitter:image" content="https://bip110-fork-monitor.surge.sh/og-image.jpg">
+<meta name="twitter:image:alt" content="BIP-110 Fork Monitor dashboard preview">
+<meta name="twitter:creator" content="@derekross">
+<meta name="twitter:site" content="@derekross">
+
+<!-- Additional SEO -->
+<meta name="application-name" content="BIP-110 Fork Monitor">
+<meta name="apple-mobile-web-app-title" content="BIP-110 Monitor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+
+<!-- Favicons -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230a0e17'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23f7931a' font-family='Arial' font-weight='bold'%3E%E2%82%BF%3C/text%3E%3C/svg%3E">
+
+<!-- Structured Data (JSON-LD) -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "BIP-110 Fork Monitor",
+  "url": "https://bip110-fork-monitor.surge.sh/",
+  "description": "Real-time Bitcoin fork monitor comparing Bitcoin Core vs Bitcoin Knots (RDTS/BIP-110). Live block data, signaling stats, carrier analysis, and network node census.",
+  "applicationCategory": "BlockchainApplication",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires JavaScript",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "creator": {
+    "@type": "Person",
+    "name": "Centauri"
+  },
+  "featureList": [
+    "Live Bitcoin Core chain data (mempool.space API)",
+    "Live Bitcoin Knots chain data (bip110.run)",
+    "BIP-110 block signaling detection",
+    "RDTS data carrier analysis",
+    "Network node census",
+    "Fork topology visualization"
+  ],
+  "about": {
+    "@type": "Thing",
+    "name": "BIP-110",
+    "description": "Bitcoin Improvement Proposal 110 — mandatory signaling requirement for block acceptance by Bitcoin Knots nodes."
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17;
+    --card-bg: #0f1522;
+    --card-border: #1a2030;
+    --core-orange: #f7931a;
+    --knots-teal: #2dd4bf;
+    --green: #4ade80;
+    --green-bg: #0d1f16;
+    --green-border: #1a3d2e;
+    --red: #ef4444;
+    --amber: #fbbf24;
+    --text: #ffffff;
+    --text-dim: #8b95a5;
+    --text-faint: #4a5568;
+    --divider: #1a2030;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh; padding: 24px; overflow-x: hidden;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  #loading {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; min-height: 100vh; gap: 16px;
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--card-border); border-top-color: var(--core-orange);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { color: var(--text-dim); font-size: 14px; }
+
+  .page-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+  }
+  .page-title { display: flex; align-items: center; gap: 12px; }
+  .page-title h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(74,222,128,0.4); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(74,222,128,0); }
+  }
+  .header-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .last-updated { font-size: 12px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+  .sound-toggle {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 18px; padding: 4px; transition: color 0.2s;
+  }
+  .sound-toggle:hover { color: var(--text); }
+
+  .error-banner {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 8px; padding: 12px 18px; margin-bottom: 16px;
+    font-size: 13px; color: #fca5a5; display: none;
+  }
+
+  .nodes-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+  }
+  .node-card {
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    border-radius: 12px; overflow: hidden; position: relative;
+  }
+  .node-card .accent-bar { height: 3px; width: 100%; }
+  .node-card.core .accent-bar { background: linear-gradient(90deg, var(--core-orange), #ffb347); }
+  .node-card.knots .accent-bar { background: linear-gradient(90deg, var(--knots-teal), #5eead4); }
+  .node-card-inner { padding: 20px 24px 24px; }
+  .node-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .node-name { display: flex; align-items: center; gap: 10px; }
+  .node-name .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .node-card.core .node-name .dot { background: var(--core-orange); }
+  .node-card.knots .node-name .dot { background: var(--knots-teal); }
+  .node-name span:nth-child(2) { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  .node-status {
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+  .node-status .status-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green); margin-right: 5px; vertical-align: middle;
+  }
+  .height-label {
+    font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px;
+  }
+  .height-value {
+    font-family: 'JetBrains Mono', monospace; font-size: 44px; font-weight: 800;
+    line-height: 1; letter-spacing: -1px; margin-bottom: 10px;
+  }
+  .hash-value {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
+    letter-spacing: 0.3px; margin-bottom: 18px; word-break: break-all;
+  }
+  .node-card.core .hash-value { color: var(--core-orange); opacity: 0.85; }
+  .node-card.knots .hash-value { color: var(--knots-teal); opacity: 0.85; }
+  .node-divider { height: 1px; background: var(--divider); margin: 0 -24px 16px; }
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+  .stat-item .stat-label {
+    font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 3px;
+  }
+  .stat-item .stat-value {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; color: var(--text);
+  }
+  .bip110-tag { color: var(--green); font-weight: 600; }
+  .rdts-violation { color: var(--red); font-weight: 600; }
+
+  .topology-panel, .signaling-panel, .blocks-panel, .nodes-list {
+    background: var(--card-bg); border: 1px solid var(--card-border);
+    border-radius: 12px; padding: 24px 28px; margin-top: 16px;
+  }
+  .signaling-panel { margin-top: 16px; }
+  .topology-eyebrow {
+    font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 2px; margin-bottom: 2px;
+  }
+  .topology-title { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  .topology-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .delta-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+    border-radius: 20px; font-size: 12px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px;
+  }
+  .delta-badge.split { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
+  .delta-badge.sync { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: var(--green); }
+  .fork-message { text-align: center; margin: 12px 0 8px; font-size: 14px; color: var(--text-dim); }
+  .fork-message strong { color: var(--amber); font-weight: 600; }
+  .fork-message strong.sync { color: var(--green); }
+
+  .topology-panel { overflow-x: auto; }
+  .chain-viz {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0; padding: 40px 0 30px; flex-wrap: nowrap; min-width: fit-content;
+  }
+  .block-node { display: flex; flex-direction: column; align-items: center; position: relative; flex-shrink: 0; }
+  .block-box {
+    width: 64px; height: 56px; background: var(--green-bg);
+    border: 1.5px solid var(--green-border); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700;
+    color: var(--text); position: relative;
+  }
+  .block-box .signal-dot {
+    position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%;
+  }
+  .signal-dot.green { background: var(--green); }
+  .signal-dot.gray { background: var(--text-faint); }
+  .signal-dot.orange { background: var(--core-orange); }
+  .block-box .pool-label {
+    position: absolute; bottom: -20px; font-size: 9px; color: var(--text-faint);
+    white-space: nowrap; font-family: 'Inter', sans-serif;
+  }
+  .connector { width: 24px; height: 2px; background: var(--green-border); flex-shrink: 0; }
+  .fork-container { display: flex; flex-direction: column; gap: 32px; margin-left: -2px; }
+  .fork-branch { display: flex; align-items: center; gap: 0; }
+  .branch-label {
+    font-size: 12px; font-weight: 700; margin-left: 12px;
+    font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; white-space: nowrap;
+  }
+  .branch-label.core { color: var(--core-orange); }
+  .branch-label.knots { color: var(--knots-teal); }
+  .block-box.core-fork { background: rgba(247,147,26,0.08); border: 1.5px solid var(--core-orange); }
+  .block-box.core-fork-predicted { background: rgba(247,147,26,0.04); border: 1.5px dashed var(--core-orange); opacity: 0.6; }
+  .block-box.knots-fork { background: rgba(45,212,191,0.08); border: 1.5px solid var(--knots-teal); }
+  .block-box.knots-fork-predicted { background: rgba(45,212,191,0.04); border: 1.5px dashed var(--knots-teal); opacity: 0.6; }
+  .fork-connector { width: 24px; height: 2px; }
+  .fork-connector.core { background: var(--core-orange); }
+  .fork-connector.core-dashed { background: none; border-top: 2px dashed var(--core-orange); height: 0; }
+  .fork-connector.knots-dashed { background: none; border-top: 2px dashed var(--knots-teal); height: 0; }
+  .legend {
+    display: flex; align-items: center; gap: 24px; margin-top: 12px;
+    padding-top: 16px; border-top: 1px solid var(--divider); flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+  .legend-item .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-dot.green { background: var(--green); }
+  .legend-dot.gray { background: var(--text-faint); }
+  .ancestor-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--divider);
+  }
+  .ancestor-left { display: flex; align-items: center; gap: 16px; }
+  .ancestor-label {
+    font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  .ancestor-value { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 800; }
+  .ancestor-hash { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-faint); }
+
+  .signaling-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 14px; }
+  .signal-stat {
+    background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .signal-stat .label {
+    font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px;
+  }
+  .signal-stat .value { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; }
+  .signal-stat .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .nodes-table, .blocks-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; }
+  .nodes-table th, .blocks-table th {
+    text-align: left; font-size: 10px; font-weight: 600; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 1.5px;
+    padding: 8px 12px; border-bottom: 1px solid var(--divider);
+  }
+  .nodes-table td, .blocks-table td {
+    padding: 10px 12px; font-family: 'JetBrains Mono', monospace;
+    border-bottom: 1px solid rgba(26,32,48,0.5); color: var(--text);
+  }
+  .nodes-table tr:last-child td, .blocks-table tr:last-child td { border-bottom: none; }
+  .nodes-table .node-type-core { color: var(--core-orange); }
+  .nodes-table .node-type-knots { color: var(--knots-teal); }
+  .blocks-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .blocks-panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+  .blocks-panel .blocks-table { min-width: 700px; }
+
+  .tip-legend {
+    margin-top: 16px; padding: 14px 18px;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--card-border);
+    border-radius: 8px; font-size: 12px; color: var(--text-dim); line-height: 1.7;
+  }
+  .tip-legend strong { color: var(--text); font-weight: 600; }
+  .tip-legend-row { display: flex; align-items: center; gap: 8px; }
+  .tip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .tip-dot.active { background: var(--green); }
+  .tip-dot.valid-fork { background: #60a5fa; }
+  .tip-dot.headers-only { background: var(--amber); }
+  .tip-dot.invalid { background: var(--red); }
+
+  .carrier-warning {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--amber); font-weight: 600;
+  }
+
+  @media (max-width: 768px) {
+    .nodes-row { grid-template-columns: 1fr; }
+    .height-value { font-size: 32px; }
+    .topology-title { font-size: 18px; }
+    .ancestor-value { font-size: 20px; }
+    .block-box { width: 52px; height: 46px; font-size: 11px; }
+    .connector, .fork-connector { width: 16px; }
+    .signaling-grid { grid-template-columns: 1fr 1fr; }
+    .ancestor-footer { flex-direction: column; gap: 8px; align-items: flex-start; }
+    body { padding: 12px; }
+    .topology-panel, .signaling-panel, .blocks-panel, .nodes-list { padding: 16px; }
+    .blocks-table { font-size: 12px; }
+    .blocks-table th, .blocks-table td { padding: 8px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Connecting to Bitcoin network…</p>
+</div>
+
+<div class="container" id="app" style="display:none;">
+
+  <div class="page-header">
+    <div class="page-title">
+      <span class="live-dot"></span>
+      <h1>BIP-110 Fork Monitor</h1>
+    </div>
+    <div class="header-right">
+      <span class="last-updated" id="lastUpdated">—</span>
+      <button class="sound-toggle" id="soundToggle" title="Toggle sound on block">🔔</button>
+    </div>
+  </div>
+
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- Node Cards -->
+  <div class="nodes-row">
+    <div class="node-card core">
+      <div class="accent-bar"></div>
+      <div class="node-card-inner">
+        <div class="node-header">
+          <div class="node-name"><span class="dot"></span><span>Bitcoin Core</span></div>
+          <div class="node-status"><span class="status-dot"></span>ONLINE</div>
+        </div>
+        <div class="height-label">HEIGHT</div>
+        <div class="height-value" id="coreHeight">—</div>
+        <div class="hash-value" id="coreHash">—</div>
+        <div class="node-divider"></div>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">Mined By</div><div class="stat-value" id="corePool">—</div></div>
+          <div class="stat-item"><div class="stat-label">Transactions</div><div class="stat-value" id="coreTxs">—</div></div>
+          <div class="stat-item"><div class="stat-label">Client</div><div class="stat-value">/Satoshi:31.0.0/</div></div>
+          <div class="stat-item"><div class="stat-label">Tip Age</div><div class="stat-value" id="coreTipAge">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="node-card knots">
+      <div class="accent-bar"></div>
+      <div class="node-card-inner">
+        <div class="node-header">
+          <div class="node-name"><span class="dot"></span><span>Knots · RDTS</span></div>
+          <div class="node-status"><span class="status-dot"></span>ONLINE</div>
+        </div>
+        <div class="height-label">HEIGHT</div>
+        <div class="height-value" id="knotsHeight">—</div>
+        <div class="hash-value" id="knotsHash">—</div>
+        <div class="node-divider"></div>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">RDTS Status</div><div class="stat-value" id="knotsRdts">—</div></div>
+          <div class="stat-item"><div class="stat-label">Data Carriers</div><div class="stat-value" id="knotsCarriers">—</div></div>
+          <div class="stat-item"><div class="stat-label">Client</div><div class="stat-value">/Knots:29.2.0/</div></div>
+          <div class="stat-item"><div class="stat-label">Signal</div><div class="stat-value" id="knotsSignal">—</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BIP-110 Signaling Stats -->
+  <div class="signaling-panel">
+    <div class="topology-eyebrow">BIP-110 SIGNALING — CURRENT DIFFICULTY PERIOD</div>
+    <div class="topology-title">Signaling Progress</div>
+    <div class="signaling-grid">
+      <div class="signal-stat">
+        <div class="label">Signal Rate</div>
+        <div class="value" id="signalRate">—</div>
+        <div class="sub" id="signalSub">of 55% needed</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">Blocks Signaled</div>
+        <div class="value" id="signalBlocks">—</div>
+        <div class="sub" id="signalBlocksSub">—</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">Period Progress</div>
+        <div class="value" id="periodProgress">—</div>
+        <div class="sub" id="periodSub">—</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">Lock-in Target</div>
+        <div class="value" id="nextRetarget">—</div>
+        <div class="sub" id="retargetSub">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Node Census -->
+  <div class="signaling-panel">
+    <div class="topology-eyebrow">NODE CENSUS — LIVE NETWORK (via luke.dashjr.org)</div>
+    <div class="topology-title">Network Distribution</div>
+    <div class="signaling-grid">
+      <div class="signal-stat">
+        <div class="label">Total Nodes</div>
+        <div class="value" id="nodeTotal">—</div>
+        <div class="sub" id="nodeTotalSub">—</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">Bitcoin Core</div>
+        <div class="value" id="nodeCore" style="color: var(--core-orange);">—</div>
+        <div class="sub" id="nodeCoreSub">—</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">Bitcoin Knots</div>
+        <div class="value" id="nodeKnots" style="color: var(--knots-teal);">—</div>
+        <div class="sub" id="nodeKnotsSub">—</div>
+      </div>
+      <div class="signal-stat">
+        <div class="label">BIP-110 / RDTS</div>
+        <div class="value" id="nodeBip110" style="color: var(--green);">—</div>
+        <div class="sub" id="nodeBip110Sub">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fork Topology -->
+  <div class="topology-panel">
+    <div class="topology-header">
+      <div>
+        <div class="topology-eyebrow">ACTIVE CHAINS</div>
+        <div class="topology-title">Fork topology</div>
+      </div>
+      <div class="delta-badge sync" id="deltaBadge">Δ 0 BLOCKS</div>
+    </div>
+    <div class="fork-message" id="forkMessage">Loading chain data…</div>
+    <div class="chain-viz" id="chainViz"></div>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot green"></span> BIP110 Signal</div>
+      <div class="legend-item"><span class="legend-dot gray"></span> No Signal</div>
+    </div>
+    <div class="ancestor-footer">
+      <div class="ancestor-left">
+        <div class="ancestor-label">COMMON ANCESTOR</div>
+        <div class="ancestor-value" id="ancestorHeight">—</div>
+      </div>
+      <div class="ancestor-hash" id="ancestorHash">—</div>
+    </div>
+  </div>
+
+  <!-- Recent Blocks Table -->
+  <div class="blocks-panel">
+    <div class="topology-eyebrow">RECENT BLOCKS — LIVE DATA (mempool.space + bip110.run)</div>
+    <div class="topology-title" style="font-size: 18px;">Block Feed</div>
+    <div class="table-wrap">
+    <table class="blocks-table">
+      <thead>
+        <tr>
+          <th>HEIGHT</th>
+          <th>POOL</th>
+          <th>BIP-110</th>
+          <th>CARRIERS</th>
+          <th>DATA BYTES</th>
+          <th>OVER 83B</th>
+          <th>TXs</th>
+          <th>AGE</th>
+        </tr>
+      </thead>
+      <tbody id="blocksTableBody"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- Tip Status Legend -->
+  <div class="tip-legend">
+    <div class="topology-eyebrow" style="margin-bottom: 10px;">TIP STATUS LEGEND</div>
+    <div class="tip-legend-row" style="margin-bottom: 6px;">
+      <span class="tip-dot active"></span>
+      <span><strong>active</strong> — Tip of the active main chain, certainly valid.</span>
+    </div>
+    <div class="tip-legend-row" style="margin-bottom: 6px;">
+      <span class="tip-dot valid-fork"></span>
+      <span><strong>valid-fork</strong> — Branch not part of active chain, but fully validated.</span>
+    </div>
+    <div class="tip-legend-row" style="margin-bottom: 6px;">
+      <span class="tip-dot headers-only"></span>
+      <span><strong>headers-only</strong> — Headers valid, blocks not fully validated.</span>
+    </div>
+    <div class="tip-legend-row">
+      <span class="tip-dot invalid"></span>
+      <span><strong>invalid</strong> — Branch contains at least one invalid block.</span>
+    </div>
+  </div>
+
+  <!-- Nodes List -->
+  <div class="nodes-list">
+    <h3 style="font-size: 10px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 14px;">NODES — Connected to this fork monitor instance</h3>
+    <table class="nodes-table">
+      <thead>
+        <tr><th>NODE</th><th>CLIENT</th><th>CHAIN</th><th>HEIGHT</th><th>STATUS</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="node-type-core">mempool-space</td><td>Bitcoin Core 31.0.0</td><td>Core</td><td id="nodeCoreHeight">—</td><td>🟢 active</td></tr>
+        <tr><td class="node-type-knots">bip110.run</td><td>Bitcoin Knots 29.2.0 (RDTS)</td><td>Knots</td><td id="nodeKnotsHeight">—</td><td id="nodeKnotsStatus">🟢 active</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="text-align:center; padding: 24px 0 8px; font-size: 12px; color: var(--text-faint);">
+    Core data: <a href="https://mempool.space" target="_blank" style="color: var(--core-orange); text-decoration: none;">mempool.space</a> ·
+    Knots data: <a href="https://bip110.run" target="_blank" style="color: var(--knots-teal); text-decoration: none;">bip110.run</a> ·
+    Node census: <a href="https://luke.dashjr.org" target="_blank" style="color: var(--text-dim); text-decoration: none;">luke.dashjr.org</a> ·
+    Built by Centauri ⭐
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// BIP-110 Fork Monitor — Dual-Source Real Data
+// Core: mempool.space API | Knots: bip110.run JSON
+// ══════════════════════════════════════════════
+
+const MEMPOOL_API = 'https://mempool.space/api';
+const BIP110RUN = 'https://bip110.run/data';
+const BIP110_BIT = 0x10;
+const MANDATORY_SIGNAL_HEIGHT = 961632;
+const LOCK_IN_HEIGHT = 963648;
+const BLOCKS_PER_PERIOD = 2016;
+const SIGNAL_THRESHOLD = 1109;
+
+let soundEnabled = false;
+let lastBlockHeight = null;
+let coreTipTimestamp = null;
+let carrierMap = {}; // height -> block data from Knots
+
+function fmt(n) { return n.toLocaleString('en-US'); }
+function shortHash(h) { return h ? h.slice(0,12) + '…' + h.slice(-12) : '—'; }
+function timeAgo(ts) {
+  const diff = Math.floor(Date.now()/1000) - ts;
+  if (diff < 60) return diff + 's';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ' + (diff%60) + 's';
+  return Math.floor(diff/3600) + 'h ' + Math.floor((diff%3600)/60) + 'm';
+}
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(2) + ' MB';
+}
+function hasBIP110Signal(version) { return (version & BIP110_BIT) !== 0; }
+
+async function apiGet(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`API ${url}: ${resp.status}`);
+  return resp.json();
+}
+
+// ── Fetch all data ──
+async function fetchCoreBlocks(n) {
+  const blocks = await apiGet(MEMPOOL_API + '/v1/blocks');
+  return blocks.slice(0, n);
+}
+
+async function fetchKnotsCarrierMap() {
+  const data = await apiGet(BIP110RUN + '/carrier-map.json');
+  carrierMap = {};
+  if (data.blocks) {
+    data.blocks.forEach(b => { carrierMap[b.h] = b; });
+  }
+  return data;
+}
+
+async function fetchNodeHistory() {
+  try {
+    return await apiGet(BIP110RUN + '/node-history.json');
+  } catch { return null; }
+}
+
+// ── Render ──
+function showError(msg) {
+  const b = document.getElementById('errorBanner');
+  b.textContent = '⚠️ ' + msg;
+  b.style.display = 'block';
+}
+function clearError() { document.getElementById('errorBanner').style.display = 'none'; }
+
+function renderCoreCard(tip) {
+  document.getElementById('coreHeight').textContent = fmt(tip.height);
+  document.getElementById('coreHash').textContent = tip.id;
+  document.getElementById('corePool').textContent = tip.extras?.pool?.name || 'Unknown';
+  document.getElementById('coreTxs').textContent = fmt(tip.tx_count);
+  document.getElementById('coreTipAge').textContent = timeAgo(tip.timestamp);
+  document.getElementById('nodeCoreHeight').textContent = fmt(tip.height);
+  coreTipTimestamp = tip.timestamp;
+}
+
+function renderKnotsCard(coreTip) {
+  const knotsBlock = carrierMap[coreTip.height] || carrierMap[coreTip.height - 1];
+  const signals = hasBIP110Signal(coreTip.version);
+  const pastMandatory = coreTip.height >= MANDATORY_SIGNAL_HEIGHT;
+  const rejected = pastMandatory && !signals;
+
+  if (knotsBlock) {
+    const showHeight = rejected ? coreTip.height - 1 : coreTip.height;
+    document.getElementById('knotsHeight').textContent = fmt(showHeight);
+
+    if (rejected) {
+      const prevBlock = carrierMap[coreTip.height - 1];
+      document.getElementById('knotsHash').textContent = prevBlock ? prevBlock.hash : '—';
+      document.getElementById('knotsRdts').innerHTML = '<span class="rdts-violation">REJECTED</span>';
+      document.getElementById('knotsSignal').innerHTML = '⚪ None';
+      document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
+      document.getElementById('nodeKnotsStatus').textContent = '🟡 valid-fork';
+    } else {
+      document.getElementById('knotsHash').textContent = coreTip.id;
+      document.getElementById('knotsRdts').innerHTML = '<span class="bip110-tag">ACCEPTED</span>';
+      document.getElementById('knotsSignal').innerHTML = signals ? '🟢 BIP110' : '⚪ None';
+      document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
+      document.getElementById('nodeKnotsStatus').textContent = '🟢 active';
+    }
+
+    // Carrier data from real Knots analysis
+    document.getElementById('knotsCarriers').textContent = fmt(knotsBlock.carriers || 0) + ' txs';
+    const over83 = knotsBlock.over83 || 0;
+    if (over83 > 0) {
+      document.getElementById('knotsCarriers').innerHTML += ' <span class="carrier-warning">⚠ ' + over83 + ' over 83B</span>';
+    }
+  }
+}
+
+function renderSignaling(blocks) {
+  const periodStart = Math.floor(blocks[0].height / BLOCKS_PER_PERIOD) * BLOCKS_PER_PERIOD;
+  const periodBlocks = blocks.filter(b => b.height >= periodStart);
+  const signalCount = periodBlocks.filter(b => hasBIP110Signal(b.version)).length;
+  const pct = periodBlocks.length > 0 ? (signalCount / periodBlocks.length * 100).toFixed(1) : '0.0';
+
+  document.getElementById('signalRate').textContent = pct + '%';
+  document.getElementById('signalSub').textContent = pct >= 55 ? '🔥 ABOVE threshold!' : (55 - pct).toFixed(1) + '% below 55% needed';
+  document.getElementById('signalBlocks').textContent = signalCount + ' / ' + periodBlocks.length;
+  document.getElementById('signalBlocksSub').textContent = 'Need ' + SIGNAL_THRESHOLD + ' of ' + BLOCKS_PER_PERIOD;
+  const progress = ((blocks[0].height - periodStart) / BLOCKS_PER_PERIOD * 100).toFixed(1);
+  document.getElementById('periodProgress').textContent = progress + '%';
+  document.getElementById('periodSub').textContent = fmt(blocks[0].height - periodStart) + ' / ' + BLOCKS_PER_PERIOD + ' blocks';
+  const remaining = LOCK_IN_HEIGHT - blocks[0].height;
+  document.getElementById('nextRetarget').textContent = fmt(remaining);
+  document.getElementById('retargetSub').textContent = 'blocks to lock-in (#963,648)';
+}
+
+function renderNodeCensus(nodeData) {
+  if (!nodeData || !nodeData.latest) return;
+
+  const l = nodeData.latest;
+  document.getElementById('nodeTotal').textContent = fmt(l.total);
+  document.getElementById('nodeTotalSub').textContent = fmt(l.listening) + ' listening · ' + fmt(l.nonListening) + ' estimated';
+
+  // Aggregate all Core versions from current data
+  let coreCount = 0;
+  if (nodeData.current && nodeData.current.versions) {
+    coreCount = nodeData.current.versions
+      .filter(v => v.software === 'Bitcoin Core')
+      .reduce((sum, v) => sum + v.count, 0);
+  }
+  document.getElementById('nodeCore').textContent = fmt(coreCount);
+  const corePct = l.total > 0 ? (coreCount / l.total * 100).toFixed(1) : '0';
+  document.getElementById('nodeCoreSub').textContent = corePct + '% of network';
+
+  document.getElementById('nodeKnots').textContent = fmt(l.knots);
+  const knotsPct = l.total > 0 ? (l.knots / l.total * 100).toFixed(1) : '0';
+  document.getElementById('nodeKnotsSub').textContent = knotsPct + '% of network';
+
+  document.getElementById('nodeBip110').textContent = fmt(l.rdts);
+  const bip110Pct = l.total > 0 ? (l.rdts / l.total * 100).toFixed(1) : '0';
+  document.getElementById('nodeBip110Sub').textContent = bip110Pct + '% of network';
+}
+
+function renderTopology(tip, blocks) {
+  const signals = hasBIP110Signal(tip.version);
+  const pastMandatory = tip.height >= MANDATORY_SIGNAL_HEIGHT;
+  const rejected = pastMandatory && !signals;
+  const delta = rejected ? 1 : 0;
+
+  const badge = document.getElementById('deltaBadge');
+  badge.textContent = 'Δ ' + delta + ' BLOCK' + (delta !== 1 ? 'S' : '');
+  badge.className = 'delta-badge ' + (delta > 0 ? 'split' : 'sync');
+
+  const msg = document.getElementById('forkMessage');
+  if (rejected) {
+    msg.innerHTML = '⚠️ Chain fork detected — <strong>Knots rejected block ' + fmt(tip.height) + '</strong> (no BIP-110 signal)';
+  } else if (pastMandatory) {
+    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> — Block ' + fmt(tip.height) + ' accepted by both implementations';
+  } else {
+    const toGo = MANDATORY_SIGNAL_HEIGHT - tip.height;
+    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> — Mandatory signaling in <strong>' + toGo + ' blocks</strong>';
+  }
+
+  const viz = document.getElementById('chainViz');
+  viz.innerHTML = '';
+  const chainBlocks = blocks.slice(0, 8).reverse();
+
+  chainBlocks.forEach((block, i) => {
+    if (i > 0) { const c = document.createElement('div'); c.className = 'connector'; viz.appendChild(c); }
+    const node = document.createElement('div');
+    node.className = 'block-node';
+    const sig = hasBIP110Signal(block.version);
+    const pool = block.extras?.pool?.name || '?';
+    node.innerHTML = `<div class="block-box"><span class="signal-dot ${sig?'green':'gray'}"></span>${fmt(block.height)}<span class="pool-label">${pool}</span></div>`;
+    viz.appendChild(node);
+  });
+
+  if (rejected) {
+    viz.insertAdjacentHTML('beforeend', `
+      <div class="fork-container">
+        <div class="fork-branch">
+          <div class="fork-connector core"></div>
+          <div class="block-box core-fork"><span class="signal-dot orange"></span>${fmt(tip.height)}</div>
+          <div class="fork-connector core-dashed"></div>
+          <div class="block-box core-fork-predicted"><span class="signal-dot orange"></span>${fmt(tip.height+1)}</div>
+          <span class="branch-label core">CORE +1</span>
+        </div>
+        <div class="fork-branch">
+          <div class="fork-connector knots-dashed"></div>
+          <div class="block-box knots-fork-predicted"><span class="signal-dot ${signals?'green':'gray'}"></span>${fmt(tip.height)}</div>
+          <span class="branch-label knots">KNOTS +0</span>
+        </div>
+      </div>`);
+  }
+
+  const ancestorHeight = rejected ? tip.height - 1 : tip.height;
+  const ancestorBlock = blocks.find(b => b.height === ancestorHeight) || blocks[0];
+  document.getElementById('ancestorHeight').textContent = fmt(ancestorHeight);
+  document.getElementById('ancestorHash').textContent = ancestorBlock.id;
+}
+
+function renderBlocksTable(blocks) {
+  const tbody = document.getElementById('blocksTableBody');
+  tbody.innerHTML = '';
+  blocks.forEach(block => {
+    const sig = hasBIP110Signal(block.version);
+    const pool = block.extras?.pool?.name || 'Unknown';
+    const age = timeAgo(block.timestamp);
+    const ck = carrierMap[block.height]; // Knots carrier data
+    const carriers = ck ? fmt(ck.carriers) : '—';
+    const dataBytes = ck ? formatBytes(ck.bytes) : '—';
+    const over83 = ck ? (ck.over83 > 0 ? '<span style="color:#fbbf24;font-weight:600">' + ck.over83 + '</span>' : '0') : '—';
+
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${fmt(block.height)}</td><td>${pool}</td><td>${sig?'🟢 Signal':'⚪ None'}</td><td>${carriers}</td><td>${dataBytes}</td><td>${over83}</td><td>${fmt(block.tx_count)}</td><td>${age}</td>`;
+    tbody.appendChild(row);
+  });
+}
+
+function updateTimestamp() {
+  document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' ET';
+}
+
+// ── Main update ──
+async function update() {
+  try {
+    const [blocks, knotData, nodeData] = await Promise.all([
+      fetchCoreBlocks(15),
+      fetchKnotsCarrierMap(),
+      fetchNodeHistory().catch(() => null)
+    ]);
+
+    const tip = blocks[0];
+    if (!tip) throw new Error('No blocks');
+
+    clearError();
+    renderCoreCard(tip);
+    renderKnotsCard(tip);
+    renderSignaling(blocks);
+    renderNodeCensus(nodeData);
+    renderTopology(tip, blocks);
+    renderBlocksTable(blocks);
+    updateTimestamp();
+
+    if (lastBlockHeight !== null && tip.height > lastBlockHeight) {
+      const sig = hasBIP110Signal(tip.version);
+      console.log(`🔔 Block ${tip.height} — BIP110: ${sig?'YES':'NO'}`);
+      if (soundEnabled) playBeep(sig);
+    }
+    lastBlockHeight = tip.height;
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+  } catch (err) {
+    console.error('Update failed:', err);
+    showError('API issue: ' + err.message + ' — will retry');
+  }
+}
+
+function playBeep(positive) {
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = positive ? 880 : 440; osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+document.getElementById('soundToggle').addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  document.getElementById('soundToggle').textContent = soundEnabled ? '🔕' : '🔔';
+});
+
+setInterval(() => {
+  if (coreTipTimestamp) document.getElementById('coreTipAge').textContent = timeAgo(coreTipTimestamp);
+}, 1000);
+
+update();
+setInterval(update, 30000);
+</script>
+</body>
+</html>
