@@ -565,6 +565,7 @@
 
 const MEMPOOL_API = 'https://mempool.space/api';
 const BIP110RUN = 'https://bip110.run/data';
+const BIP110MONITOR = 'https://bip110monitor.com/api';
 const BIP110_BIT = 0x10;
 const MANDATORY_SIGNAL_HEIGHT = 961632;
 const LOCK_IN_HEIGHT = 963648;
@@ -575,6 +576,8 @@ let soundEnabled = false;
 let lastBlockHeight = null;
 let coreTipTimestamp = null;
 let carrierMap = {}; // height -> block data from Knots
+let monitorData = null; // bip110monitor.com data for accurate period stats
+let carrierTipHeight = 0; // highest block in carrier map
 
 function fmt(n) { return n.toLocaleString('en-US'); }
 function shortHash(h) { return h ? h.slice(0,12) + '…' + h.slice(-12) : '—'; }
@@ -604,12 +607,21 @@ async function fetchCoreBlocks(n) {
 }
 
 async function fetchKnotsCarrierMap() {
-  const data = await apiGet(BIP110RUN + '/carrier-map.json');
-  carrierMap = {};
-  if (data.blocks) {
-    data.blocks.forEach(b => { carrierMap[b.h] = b; });
-  }
-  return data;
+  try {
+    const data = await apiGet(BIP110RUN + '/carrier-map.json');
+    carrierMap = {};
+    carrierTipHeight = data.tip || 0;
+    if (data.blocks) {
+      data.blocks.forEach(b => { carrierMap[b.h] = b; });
+    }
+    return data;
+  } catch { return null; }
+}
+
+async function fetchMonitorData() {
+  try {
+    return await apiGet(BIP110MONITOR);
+  } catch { return null; }
 }
 
 async function fetchNodeHistory() {
@@ -636,42 +648,71 @@ function renderCoreCard(tip) {
   coreTipTimestamp = tip.timestamp;
 }
 
-function renderKnotsCard(coreTip) {
-  const knotsBlock = carrierMap[coreTip.height] || carrierMap[coreTip.height - 1];
+function renderKnotsCard(coreTip, blocks) {
   const signals = hasBIP110Signal(coreTip.version);
   const pastMandatory = coreTip.height >= MANDATORY_SIGNAL_HEIGHT;
   const rejected = pastMandatory && !signals;
 
+  // Use carrier map if available, otherwise derive from mempool.space blocks
+  const knotsBlock = carrierMap[coreTip.height];
+
+  const showHeight = rejected ? coreTip.height - 1 : coreTip.height;
+  document.getElementById('knotsHeight').textContent = fmt(showHeight);
+
+  if (rejected) {
+    // Find previous block hash from our blocks array
+    const prevBlock = blocks.find(b => b.height === coreTip.height - 1);
+    document.getElementById('knotsHash').textContent = prevBlock ? prevBlock.id : (carrierMap[coreTip.height - 1] ? carrierMap[coreTip.height - 1].hash : 'pending…');
+    document.getElementById('knotsRdts').innerHTML = '<span class="rdts-violation">REJECTED</span>';
+    document.getElementById('knotsSignal').innerHTML = '⚪ None';
+    document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
+    document.getElementById('nodeKnotsStatus').textContent = '🟡 valid-fork';
+  } else {
+    document.getElementById('knotsHash').textContent = coreTip.id;
+    document.getElementById('knotsRdts').innerHTML = '<span class="bip110-tag">ACCEPTED</span>';
+    document.getElementById('knotsSignal').innerHTML = signals ? '🟢 BIP110' : '⚪ None';
+    document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
+    document.getElementById('nodeKnotsStatus').textContent = '🟢 active';
+  }
+
+  // Carrier data — from real Knots analysis if available, otherwise show pending
   if (knotsBlock) {
-    const showHeight = rejected ? coreTip.height - 1 : coreTip.height;
-    document.getElementById('knotsHeight').textContent = fmt(showHeight);
-
-    if (rejected) {
-      const prevBlock = carrierMap[coreTip.height - 1];
-      document.getElementById('knotsHash').textContent = prevBlock ? prevBlock.hash : '—';
-      document.getElementById('knotsRdts').innerHTML = '<span class="rdts-violation">REJECTED</span>';
-      document.getElementById('knotsSignal').innerHTML = '⚪ None';
-      document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
-      document.getElementById('nodeKnotsStatus').textContent = '🟡 valid-fork';
-    } else {
-      document.getElementById('knotsHash').textContent = coreTip.id;
-      document.getElementById('knotsRdts').innerHTML = '<span class="bip110-tag">ACCEPTED</span>';
-      document.getElementById('knotsSignal').innerHTML = signals ? '🟢 BIP110' : '⚪ None';
-      document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
-      document.getElementById('nodeKnotsStatus').textContent = '🟢 active';
-    }
-
-    // Carrier data from real Knots analysis
     document.getElementById('knotsCarriers').textContent = fmt(knotsBlock.carriers || 0) + ' txs';
     const over83 = knotsBlock.over83 || 0;
     if (over83 > 0) {
       document.getElementById('knotsCarriers').innerHTML += ' <span class="carrier-warning">⚠ ' + over83 + ' over 83B</span>';
     }
+  } else {
+    const lag = coreTip.height - carrierTipHeight;
+    document.getElementById('knotsCarriers').innerHTML = '<span style="color:var(--text-faint)">pending' + (lag > 0 ? ' (' + lag + ' blocks behind)' : '') + '</span>';
   }
 }
 
-function renderSignaling(blocks) {
-  const periodStart = Math.floor(blocks[0].height / BLOCKS_PER_PERIOD) * BLOCKS_PER_PERIOD;
+function renderSignaling(blocks, tipHeight) {
+  // Prefer bip110monitor.com for accurate period-wide stats
+  if (monitorData && monitorData.tip) {
+    const sigCount = monitorData.signalingCount || 0;
+    const totalBlocks = monitorData.totalBlocks || 0;
+    const pct = monitorData.pct || 0;
+    const periodStart = monitorData.periodStart || 0;
+    const periodEnd = monitorData.periodEnd || 0;
+
+    document.getElementById('signalRate').textContent = pct.toFixed(2) + '%';
+    document.getElementById('signalSub').textContent = pct >= 55 ? '🔥 ABOVE threshold!' : (55 - pct).toFixed(2) + '% below 55% needed';
+    document.getElementById('signalBlocks').textContent = sigCount + ' / ' + totalBlocks;
+    document.getElementById('signalBlocksSub').textContent = 'Need ' + SIGNAL_THRESHOLD + ' of ' + BLOCKS_PER_PERIOD;
+    const elapsed = tipHeight - periodStart + 1;
+    const progress = (elapsed / BLOCKS_PER_PERIOD * 100).toFixed(1);
+    document.getElementById('periodProgress').textContent = progress + '%';
+    document.getElementById('periodSub').textContent = fmt(elapsed) + ' / ' + BLOCKS_PER_PERIOD + ' blocks';
+    const remaining = LOCK_IN_HEIGHT - tipHeight;
+    document.getElementById('nextRetarget').textContent = fmt(remaining);
+    document.getElementById('retargetSub').textContent = 'blocks to lock-in (#963,648)';
+    return;
+  }
+
+  // Fallback: calculate from recent blocks we have
+  const periodStart = Math.floor(tipHeight / BLOCKS_PER_PERIOD) * BLOCKS_PER_PERIOD;
   const periodBlocks = blocks.filter(b => b.height >= periodStart);
   const signalCount = periodBlocks.filter(b => hasBIP110Signal(b.version)).length;
   const pct = periodBlocks.length > 0 ? (signalCount / periodBlocks.length * 100).toFixed(1) : '0.0';
@@ -680,10 +721,10 @@ function renderSignaling(blocks) {
   document.getElementById('signalSub').textContent = pct >= 55 ? '🔥 ABOVE threshold!' : (55 - pct).toFixed(1) + '% below 55% needed';
   document.getElementById('signalBlocks').textContent = signalCount + ' / ' + periodBlocks.length;
   document.getElementById('signalBlocksSub').textContent = 'Need ' + SIGNAL_THRESHOLD + ' of ' + BLOCKS_PER_PERIOD;
-  const progress = ((blocks[0].height - periodStart) / BLOCKS_PER_PERIOD * 100).toFixed(1);
+  const progress = ((tipHeight - periodStart) / BLOCKS_PER_PERIOD * 100).toFixed(1);
   document.getElementById('periodProgress').textContent = progress + '%';
-  document.getElementById('periodSub').textContent = fmt(blocks[0].height - periodStart) + ' / ' + BLOCKS_PER_PERIOD + ' blocks';
-  const remaining = LOCK_IN_HEIGHT - blocks[0].height;
+  document.getElementById('periodSub').textContent = fmt(tipHeight - periodStart) + ' / ' + BLOCKS_PER_PERIOD + ' blocks';
+  const remaining = LOCK_IN_HEIGHT - tipHeight;
   document.getElementById('nextRetarget').textContent = fmt(remaining);
   document.getElementById('retargetSub').textContent = 'blocks to lock-in (#963,648)';
 }
@@ -781,9 +822,9 @@ function renderBlocksTable(blocks) {
     const pool = block.extras?.pool?.name || 'Unknown';
     const age = timeAgo(block.timestamp);
     const ck = carrierMap[block.height]; // Knots carrier data
-    const carriers = ck ? fmt(ck.carriers) : '—';
-    const dataBytes = ck ? formatBytes(ck.bytes) : '—';
-    const over83 = ck ? (ck.over83 > 0 ? '<span style="color:#fbbf24;font-weight:600">' + ck.over83 + '</span>' : '0') : '—';
+    const carriers = ck ? fmt(ck.carriers) : '<span style="color:var(--text-faint)">—</span>';
+    const dataBytes = ck ? formatBytes(ck.bytes) : '<span style="color:var(--text-faint)">—</span>';
+    const over83 = ck ? (ck.over83 > 0 ? '<span style="color:#fbbf24;font-weight:600">' + ck.over83 + '</span>' : '0') : '<span style="color:var(--text-faint)">—</span>';
 
     const row = document.createElement('tr');
     row.innerHTML = `<td>${fmt(block.height)}</td><td>${pool}</td><td>${sig?'🟢 Signal':'⚪ None'}</td><td>${carriers}</td><td>${dataBytes}</td><td>${over83}</td><td>${fmt(block.tx_count)}</td><td>${age}</td>`;
@@ -798,19 +839,21 @@ function updateTimestamp() {
 // ── Main update ──
 async function update() {
   try {
-    const [blocks, knotData, nodeData] = await Promise.all([
-      fetchCoreBlocks(15),
-      fetchKnotsCarrierMap(),
-      fetchNodeHistory().catch(() => null)
+    const [blocks, _knotData, nodeData, monData] = await Promise.all([
+      fetchCoreBlocks(20),
+      fetchKnotsCarrierMap().catch(() => null),
+      fetchNodeHistory().catch(() => null),
+      fetchMonitorData().catch(() => null)
     ]);
 
+    monitorData = monData;
     const tip = blocks[0];
     if (!tip) throw new Error('No blocks');
 
     clearError();
     renderCoreCard(tip);
-    renderKnotsCard(tip);
-    renderSignaling(blocks);
+    renderKnotsCard(tip, blocks);
+    renderSignaling(blocks, tip.height);
     renderNodeCensus(nodeData);
     renderTopology(tip, blocks);
     renderBlocksTable(blocks);
