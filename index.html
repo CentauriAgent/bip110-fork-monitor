@@ -130,6 +130,7 @@
   .live-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--green);
     animation: pulse 2s ease-in-out infinite;
+    transition: transform 0.3s ease;
   }
   @keyframes pulse {
     0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(74,222,128,0.4); }
@@ -342,6 +343,15 @@
     .topology-panel, .signaling-panel, .blocks-panel, .nodes-list { padding: 16px; }
     .blocks-table { font-size: 12px; }
     .blocks-table th, .blocks-table td { padding: 8px 6px; }
+    .page-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .header-right { width: 100%; justify-content: space-between; }
+    .page-title h1 { font-size: 16px; }
+  }
+  @media (max-width: 480px) {
+    .header-right { flex-direction: row; gap: 8px; }
+    .last-updated { font-size: 11px; }
+    .node-card-inner { padding: 16px; }
+    .height-value { font-size: 26px; }
   }
 </style>
 </head>
@@ -578,6 +588,9 @@ let coreTipTimestamp = null;
 let carrierMap = {}; // height -> block data from Knots
 let monitorData = null; // bip110monitor.com data for accurate period stats
 let carrierTipHeight = 0; // highest block in carrier map
+let audioCtx = null; // reused AudioContext for beeps
+let hasInitialData = false; // track if we've ever loaded data
+let dataHealth = { mempool: true, bip110run: true, bip110monitor: true };
 
 function fmt(n) { return n.toLocaleString('en-US'); }
 function shortHash(h) { return h ? h.slice(0,12) + '…' + h.slice(-12) : '—'; }
@@ -637,6 +650,28 @@ function showError(msg) {
   b.style.display = 'block';
 }
 function clearError() { document.getElementById('errorBanner').style.display = 'none'; }
+
+function showDataWarning(sources) {
+  const banner = document.getElementById('errorBanner');
+  if (sources.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+  banner.style.background = 'rgba(251,191,36,0.1)';
+  banner.style.borderColor = 'rgba(251,191,36,0.3)';
+  banner.style.color = '#fcd34d';
+  banner.textContent = '⚠️ Degraded data: ' + sources.join(', ') + ' unavailable — showing partial results';
+  banner.style.display = 'block';
+}
+
+function showErrorFull(msg) {
+  const banner = document.getElementById('errorBanner');
+  banner.style.background = 'rgba(239,68,68,0.1)';
+  banner.style.borderColor = 'rgba(239,68,68,0.3)';
+  banner.style.color = '#fca5a5';
+  banner.textContent = '⚠️ ' + msg;
+  banner.style.display = 'block';
+}
 
 function renderCoreCard(tip) {
   document.getElementById('coreHeight').textContent = fmt(tip.height);
@@ -833,24 +868,53 @@ function renderBlocksTable(blocks) {
 }
 
 function updateTimestamp() {
-  document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' ET';
+  const el = document.getElementById('lastUpdated');
+  el.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' ET';
+  el.style.opacity = '0.5';
+  requestAnimationFrame(() => { el.style.transition = 'opacity 0.4s'; el.style.opacity = '1'; });
 }
 
 // ── Main update ──
 async function update() {
+  // Track which sources fail this cycle
+  const degraded = [];
+
   try {
-    const [blocks, _knotData, nodeData, monData] = await Promise.all([
-      fetchCoreBlocks(20),
-      fetchKnotsCarrierMap().catch(() => null),
-      fetchNodeHistory().catch(() => null),
-      fetchMonitorData().catch(() => null)
+    // Fetch core blocks first — this is the critical source
+    let blocks;
+    try {
+      blocks = await fetchCoreBlocks(20);
+      dataHealth.mempool = true;
+    } catch (e) {
+      dataHealth.mempool = false;
+      if (!hasInitialData) {
+        showErrorFull('Cannot reach mempool.space: ' + e.message + ' — retrying…');
+      }
+      return; // Can't do anything without core blocks
+    }
+
+    // Fetch secondary sources in parallel — don't let failures block us
+    const [_knotData, nodeData, monData] = await Promise.all([
+      fetchKnotsCarrierMap().catch(() => { dataHealth.bip110run = false; degraded.push('bip110.run carrier data'); return null; }),
+      fetchNodeHistory().catch(() => { return null; }),
+      fetchMonitorData().catch(() => { dataHealth.bip110monitor = false; degraded.push('bip110monitor.com stats'); return null; })
     ]);
+
+    if (monData) dataHealth.bip110monitor = true;
+    if (_knotData) dataHealth.bip110run = true;
 
     monitorData = monData;
     const tip = blocks[0];
-    if (!tip) throw new Error('No blocks');
+    if (!tip) throw new Error('No blocks returned from mempool.space');
 
+    hasInitialData = true;
     clearError();
+
+    // Show degraded warning if any sources are down (but we have core data)
+    if (degraded.length > 0) {
+      showDataWarning(degraded);
+    }
+
     renderCoreCard(tip);
     renderKnotsCard(tip, blocks);
     renderSignaling(blocks, tip.height);
@@ -859,9 +923,15 @@ async function update() {
     renderBlocksTable(blocks);
     updateTimestamp();
 
+    // Pulse the live indicator on refresh
+    const liveDot = document.querySelector('.live-dot');
+    if (liveDot) {
+      liveDot.style.transform = 'scale(1.5)';
+      setTimeout(() => { if (liveDot) liveDot.style.transform = ''; }, 300);
+    }
+
     if (lastBlockHeight !== null && tip.height > lastBlockHeight) {
       const sig = hasBIP110Signal(tip.version);
-      console.log(`🔔 Block ${tip.height} — BIP110: ${sig?'YES':'NO'}`);
       if (soundEnabled) playBeep(sig);
     }
     lastBlockHeight = tip.height;
@@ -869,20 +939,29 @@ async function update() {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('app').style.display = 'block';
   } catch (err) {
-    console.error('Update failed:', err);
-    showError('API issue: ' + err.message + ' — will retry');
+    if (!hasInitialData) {
+      showErrorFull('Failed to load: ' + err.message + ' — will retry');
+    }
+    // If we already have data, silently retry next cycle — don't flash error banner
   }
 }
 
 function playBeep(positive) {
   try {
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    // Reuse a single AudioContext instead of creating one per beep
+    if (!audioCtx || audioCtx.state === 'closed') {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Resume if suspended (browser autoplay policy)
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
     osc.frequency.value = positive ? 880 : 440; osc.type = 'sine';
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-    osc.start(); osc.stop(ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.3);
   } catch(e) {}
 }
 
