@@ -330,6 +330,28 @@
     font-size: 11px; color: var(--amber); font-weight: 600;
   }
 
+  .split-alert {
+    background: rgba(239,68,68,0.08); border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  .split-alert-icon { font-size: 32px; flex-shrink: 0; }
+  .split-alert-body { flex: 1; min-width: 250px; }
+  .split-alert-title {
+    font-size: 14px; font-weight: 800; color: #fbbf24;
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;
+  }
+  .split-alert-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px 24px; font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  }
+  .split-alert-grid .label { color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+  .split-alert-grid .val { color: var(--text); }
+  .split-alert-grid .val.core-val { color: var(--core-orange); }
+  .split-alert-grid .val.knots-val { color: var(--knots-teal); }
+  .split-alert-grid .val.divergence-val { color: #f87171; font-weight: 700; }
+  .split-alert-grid .val.ancestor-val { color: var(--text-dim); }
+
   @media (max-width: 768px) {
     .nodes-row { grid-template-columns: 1fr; }
     .height-value { font-size: 32px; }
@@ -419,6 +441,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Active Chain Split Alert (shown only when chains diverge) -->
+  <div id="splitAlert" style="display:none;"></div>
 
   <!-- BIP-110 Signaling Stats -->
   <div class="signaling-panel">
@@ -592,6 +617,12 @@ let audioCtx = null; // reused AudioContext for beeps
 let hasInitialData = false; // track if we've ever loaded data
 let dataHealth = { mempool: true, bip110run: true, bip110monitor: true };
 
+// Real Knots chain tip data from signal-map.json
+let knotsTipHeight = null;
+let knotsTipTime = null;
+let knotsSignalMapSource = null;
+let knotsRecentSignaling = [];
+
 function fmt(n) { return n.toLocaleString('en-US'); }
 function shortHash(h) { return h ? h.slice(0,12) + '…' + h.slice(-12) : '—'; }
 function timeAgo(ts) {
@@ -643,6 +674,20 @@ async function fetchNodeHistory() {
   } catch { return null; }
 }
 
+async function fetchKnotsSignalMap() {
+  try {
+    const data = await apiGet(BIP110RUN + '/signal-map.json');
+    if (data && data.chainClock) {
+      knotsTipHeight = data.chainClock.tipHeight;
+      knotsTipTime = data.chainClock.tipTime;
+      knotsSignalMapSource = data.source || 'Bitcoin Knots node';
+      knotsRecentSignaling = data.recentSignaling || [];
+      return data;
+    }
+    return null;
+  } catch { return null; }
+}
+
 // ── Render ──
 function showError(msg) {
   const b = document.getElementById('errorBanner');
@@ -684,42 +729,84 @@ function renderCoreCard(tip) {
 }
 
 function renderKnotsCard(coreTip, blocks) {
-  const signals = hasBIP110Signal(coreTip.version);
-  const pastMandatory = coreTip.height >= MANDATORY_SIGNAL_HEIGHT;
-  const rejected = pastMandatory && !signals;
+  const coreHeight = coreTip.height;
+  const useRealKnotsTip = knotsTipHeight !== null;
+  const showHeight = useRealKnotsTip ? knotsTipHeight : coreHeight;
+  const divergence = useRealKnotsTip ? coreHeight - knotsTipHeight : 0;
+  const isSplit = divergence > 0;
 
-  // Use carrier map if available, otherwise derive from mempool.space blocks
-  const knotsBlock = carrierMap[coreTip.height];
-
-  const showHeight = rejected ? coreTip.height - 1 : coreTip.height;
   document.getElementById('knotsHeight').textContent = fmt(showHeight);
 
-  if (rejected) {
-    // Find previous block hash from our blocks array
-    const prevBlock = blocks.find(b => b.height === coreTip.height - 1);
-    document.getElementById('knotsHash').textContent = prevBlock ? prevBlock.id : (carrierMap[coreTip.height - 1] ? carrierMap[coreTip.height - 1].hash : 'pending…');
-    document.getElementById('knotsRdts').innerHTML = '<span class="rdts-violation">REJECTED</span>';
-    document.getElementById('knotsSignal').innerHTML = '⚪ None';
-    document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
-    document.getElementById('nodeKnotsStatus').textContent = '🟡 valid-fork';
+  // Show real Knots tip hash if we can find it in carrier map, otherwise descriptive label
+  if (useRealKnotsTip) {
+    const knotsBlock = carrierMap[knotsTipHeight];
+    if (knotsBlock && knotsBlock.hash) {
+      document.getElementById('knotsHash').textContent = knotsBlock.hash;
+    } else {
+      document.getElementById('knotsHash').textContent = 'Knots node tip (hash unavailable)';
+    }
   } else {
     document.getElementById('knotsHash').textContent = coreTip.id;
-    document.getElementById('knotsRdts').innerHTML = '<span class="bip110-tag">ACCEPTED</span>';
-    document.getElementById('knotsSignal').innerHTML = signals ? '🟢 BIP110' : '⚪ None';
-    document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
-    document.getElementById('nodeKnotsStatus').textContent = '🟢 active';
   }
 
-  // Carrier data — from real Knots analysis if available, otherwise show pending
+  // RDTS status
+  if (isSplit) {
+    document.getElementById('knotsRdts').innerHTML = '<span class="rdts-violation">REJECTING</span>';
+    document.getElementById('knotsSignal').innerHTML = '⚪ Enforcing RDTS';
+    document.getElementById('nodeKnotsStatus').textContent = '🟡 valid-fork';
+  } else {
+    const signals = hasBIP110Signal(coreTip.version);
+    document.getElementById('knotsRdts').innerHTML = '<span class="bip110-tag">ACCEPTED</span>';
+    document.getElementById('knotsSignal').innerHTML = signals ? '\ud83d\udfe2 BIP110' : '\u26aa None';
+    document.getElementById('nodeKnotsStatus').textContent = '\ud83d\udfe2 active';
+  }
+
+  document.getElementById('nodeKnotsHeight').textContent = fmt(showHeight);
+
+  // Carrier data
+  const knotsBlock = carrierMap[showHeight];
   if (knotsBlock) {
     document.getElementById('knotsCarriers').textContent = fmt(knotsBlock.carriers || 0) + ' txs';
     const over83 = knotsBlock.over83 || 0;
     if (over83 > 0) {
-      document.getElementById('knotsCarriers').innerHTML += ' <span class="carrier-warning">⚠ ' + over83 + ' over 83B</span>';
+      document.getElementById('knotsCarriers').innerHTML += ' <span class="carrier-warning">\u26a0 ' + over83 + ' over 83B</span>';
     }
   } else {
-    const lag = coreTip.height - carrierTipHeight;
+    const lag = coreHeight - carrierTipHeight;
     document.getElementById('knotsCarriers').innerHTML = '<span style="color:var(--text-faint)">pending' + (lag > 0 ? ' (' + lag + ' blocks behind)' : '') + '</span>';
+  }
+
+  // Update the Knots stats grid to show chain position
+  const signalItem = document.getElementById('knotsSignal').parentElement;
+  if (isSplit && signalItem) {
+    // Add chain position stat if not already present
+    let chainPosItem = document.getElementById('knotsChainPos');
+    if (!chainPosItem) {
+      chainPosItem = document.createElement('div');
+      chainPosItem.className = 'stat-item';
+      chainPosItem.id = 'knotsChainPos';
+      chainPosItem.innerHTML = '<div class="stat-label">Chain Position</div><div class="stat-value" style="color:var(--amber)">' + divergence + ' blocks behind Core</div>';
+      signalItem.parentElement.appendChild(chainPosItem);
+    } else {
+      chainPosItem.querySelector('.stat-value').textContent = divergence + ' blocks behind Core';
+      chainPosItem.querySelector('.stat-value').style.color = 'var(--amber)';
+    }
+  }
+
+  // Show real tip age for Knots if available
+  if (knotsTipTime && isSplit) {
+    let knotsAgeItem = document.getElementById('knotsTipAge');
+    if (!knotsAgeItem) {
+      knotsAgeItem = document.createElement('div');
+      knotsAgeItem.className = 'stat-item';
+      knotsAgeItem.id = 'knotsTipAge';
+      knotsAgeItem.innerHTML = '<div class="stat-label">Tip Age (Knots)</div><div class="stat-value" style="color:var(--amber)">' + timeAgo(knotsTipTime) + '</div>';
+      // Insert after the signal stat
+      const grid = signalItem.parentElement;
+      grid.appendChild(knotsAgeItem);
+    } else {
+      knotsAgeItem.querySelector('.stat-value').textContent = timeAgo(knotsTipTime);
+    }
   }
 }
 
@@ -792,61 +879,143 @@ function renderNodeCensus(nodeData) {
 }
 
 function renderTopology(tip, blocks) {
-  const signals = hasBIP110Signal(tip.version);
-  const pastMandatory = tip.height >= MANDATORY_SIGNAL_HEIGHT;
-  const rejected = pastMandatory && !signals;
-  const delta = rejected ? 1 : 0;
+  const coreHeight = tip.height;
+  const useRealKnotsTip = knotsTipHeight !== null;
+  const knotsHeight = useRealKnotsTip ? knotsTipHeight : coreHeight;
+  const divergence = useRealKnotsTip ? coreHeight - knotsTipHeight : 0;
+  const isSplit = divergence > 0;
+  const pastMandatory = coreHeight >= MANDATORY_SIGNAL_HEIGHT;
 
   const badge = document.getElementById('deltaBadge');
-  badge.textContent = 'Δ ' + delta + ' BLOCK' + (delta !== 1 ? 'S' : '');
-  badge.className = 'delta-badge ' + (delta > 0 ? 'split' : 'sync');
+  badge.textContent = '\u0394 ' + divergence + ' BLOCK' + (divergence !== 1 ? 'S' : '');
+  badge.className = 'delta-badge ' + (isSplit ? 'split' : 'sync');
 
   const msg = document.getElementById('forkMessage');
-  if (rejected) {
-    msg.innerHTML = '⚠️ Chain fork detected — <strong>Knots rejected block ' + fmt(tip.height) + '</strong> (no BIP-110 signal)';
+  if (isSplit) {
+    msg.innerHTML = '\u26a0\ufe0f CHAIN SPLIT \u2014 <strong>' + divergence + ' blocks divergent</strong> \u2014 Knots stalled at ' + fmt(knotsHeight) + ', Core advancing at ' + fmt(coreHeight);
   } else if (pastMandatory) {
-    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> — Block ' + fmt(tip.height) + ' accepted by both implementations';
+    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> \u2014 Block ' + fmt(coreHeight) + ' accepted by both implementations';
   } else {
-    const toGo = MANDATORY_SIGNAL_HEIGHT - tip.height;
-    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> — Mandatory signaling in <strong>' + toGo + ' blocks</strong>';
+    const toGo = MANDATORY_SIGNAL_HEIGHT - coreHeight;
+    msg.innerHTML = 'Chains <strong class="sync">in sync</strong> \u2014 Mandatory signaling in <strong>' + toGo + ' blocks</strong>';
   }
 
   const viz = document.getElementById('chainViz');
   viz.innerHTML = '';
-  const chainBlocks = blocks.slice(0, 8).reverse();
 
-  chainBlocks.forEach((block, i) => {
-    if (i > 0) { const c = document.createElement('div'); c.className = 'connector'; viz.appendChild(c); }
-    const node = document.createElement('div');
-    node.className = 'block-node';
-    const sig = hasBIP110Signal(block.version);
-    const pool = block.extras?.pool?.name || '?';
-    node.innerHTML = `<div class="block-box"><span class="signal-dot ${sig?'green':'gray'}"></span>${fmt(block.height)}<span class="pool-label">${pool}</span></div>`;
-    viz.appendChild(node);
-  });
+  if (isSplit) {
+    // Show real fork: common ancestor + Core chain extending + Knots stalled
+    const ancestorHeight = knotsHeight; // Last shared block
+    // Find ancestor block from our blocks array or carrier map
+    const ancestorBlock = blocks.find(b => b.height === ancestorHeight);
+    const ancestorCarrier = carrierMap[ancestorHeight];
 
-  if (rejected) {
-    viz.insertAdjacentHTML('beforeend', `
-      <div class="fork-container">
-        <div class="fork-branch">
-          <div class="fork-connector core"></div>
-          <div class="block-box core-fork"><span class="signal-dot orange"></span>${fmt(tip.height)}</div>
-          <div class="fork-connector core-dashed"></div>
-          <div class="block-box core-fork-predicted"><span class="signal-dot orange"></span>${fmt(tip.height+1)}</div>
-          <span class="branch-label core">CORE +1</span>
-        </div>
-        <div class="fork-branch">
-          <div class="fork-connector knots-dashed"></div>
-          <div class="block-box knots-fork-predicted"><span class="signal-dot ${signals?'green':'gray'}"></span>${fmt(tip.height)}</div>
-          <span class="branch-label knots">KNOTS +0</span>
-        </div>
-      </div>`);
+    // Build a chain from ancestor to Core tip (reversed for display)
+    const coreChainBlocks = blocks.filter(b => b.height > ancestorHeight).slice(0, 6).reverse();
+
+    // Common ancestor block
+    const ancestorNode = document.createElement('div');
+    ancestorNode.className = 'block-node';
+    const ancestorSig = ancestorBlock ? hasBIP110Signal(ancestorBlock.version) : true;
+    const ancestorPool = ancestorBlock?.extras?.pool?.name || ancestorCarrier?.pool || '?';
+    ancestorNode.innerHTML = '<div class="block-box" style="background:var(--green-bg);border-color:var(--green-border)"><span class="signal-dot ' + (ancestorSig ? 'green' : 'gray') + '"></span>' + fmt(ancestorHeight) + '<span class="pool-label">' + ancestorPool + '</span></div>';
+    viz.appendChild(ancestorNode);
+
+    if (coreChainBlocks.length > 0) {
+      // Fork container with Core going up and Knots stalled
+      viz.insertAdjacentHTML('beforeend', '<div class="fork-container"><div class="fork-branch" id="coreBranch"></div><div class="fork-branch" id="knotsBranch"></div></div>');
+
+      const coreBranch = document.getElementById('coreBranch');
+      coreChainBlocks.forEach((block, i) => {
+        if (i === 0) {
+          const c = document.createElement('div'); c.className = 'fork-connector core'; coreBranch.appendChild(c);
+        } else {
+          const c = document.createElement('div'); c.className = 'fork-connector core'; coreBranch.appendChild(c);
+        }
+        const sig = hasBIP110Signal(block.version);
+        const pool = block.extras?.pool?.name || '?';
+        const node = document.createElement('div');
+        node.className = 'block-box ' + (i >= 4 ? 'core-fork-predicted' : 'core-fork');
+        node.innerHTML = '<span class="signal-dot ' + (sig ? 'green' : 'gray') + '"></span>' + fmt(block.height) + '<span class="pool-label">' + pool + '</span>';
+        coreBranch.appendChild(node);
+      });
+      // Add label
+      const label = document.createElement('span');
+      label.className = 'branch-label core';
+      label.textContent = 'CORE +' + divergence;
+      coreBranch.appendChild(label);
+
+      // Knots branch — stalled at ancestor height
+      const knotsBranch = document.getElementById('knotsBranch');
+      const stallNote = document.createElement('div');
+      stallNote.className = 'block-box knots-fork';
+      stallNote.style.opacity = '0.5';
+      stallNote.innerHTML = '<span class="signal-dot gray"></span>STALLED<span class="pool-label">' + fmt(knotsHeight) + '</span>';
+      const kc = document.createElement('div');
+      kc.className = 'fork-connector';
+      kc.style.cssText = 'border-top:2px dashed var(--knots-teal);height:0;background:none;width:24px;';
+      knotsBranch.appendChild(kc);
+      knotsBranch.appendChild(stallNote);
+      const kLabel = document.createElement('span');
+      kLabel.className = 'branch-label knots';
+      kLabel.textContent = 'KNOTS +0';
+      knotsBranch.appendChild(kLabel);
+    }
+
+    // Ancestor footer
+    document.getElementById('ancestorHeight').textContent = fmt(ancestorHeight);
+    if (ancestorBlock) {
+      document.getElementById('ancestorHash').textContent = ancestorBlock.id;
+    } else if (ancestorCarrier && ancestorCarrier.hash) {
+      document.getElementById('ancestorHash').textContent = ancestorCarrier.hash;
+    } else {
+      document.getElementById('ancestorHash').textContent = 'block #' + fmt(ancestorHeight);
+    }
+  } else {
+    // Chains in sync — show linear chain
+    const chainBlocks = blocks.slice(0, 8).reverse();
+    chainBlocks.forEach((block, i) => {
+      if (i > 0) { const c = document.createElement('div'); c.className = 'connector'; viz.appendChild(c); }
+      const node = document.createElement('div');
+      node.className = 'block-node';
+      const sig = hasBIP110Signal(block.version);
+      const pool = block.extras?.pool?.name || '?';
+      node.innerHTML = '<div class="block-box"><span class="signal-dot ' + (sig ? 'green' : 'gray') + '"></span>' + fmt(block.height) + '<span class="pool-label">' + pool + '</span></div>';
+      viz.appendChild(node);
+    });
+
+    const ancestorHeightH = coreHeight;
+    document.getElementById('ancestorHeight').textContent = fmt(ancestorHeightH);
+    document.getElementById('ancestorHash').textContent = tip.id;
   }
+}
 
-  const ancestorHeight = rejected ? tip.height - 1 : tip.height;
-  const ancestorBlock = blocks.find(b => b.height === ancestorHeight) || blocks[0];
-  document.getElementById('ancestorHeight').textContent = fmt(ancestorHeight);
-  document.getElementById('ancestorHash').textContent = ancestorBlock.id;
+function renderSplitAlert(coreTip) {
+  const alert = document.getElementById('splitAlert');
+  if (knotsTipHeight === null) {
+    alert.style.display = 'none';
+    return;
+  }
+  const divergence = coreTip.height - knotsTipHeight;
+  if (divergence <= 0) {
+    alert.style.display = 'none';
+    return;
+  }
+  const ancestorHeight = knotsTipHeight;
+  alert.innerHTML = `
+    <div class="split-alert">
+      <div class="split-alert-icon">\u26a0\ufe0f</div>
+      <div class="split-alert-body">
+        <div class="split-alert-title">Active Chain Split</div>
+        <div class="split-alert-grid">
+          <div><div class="label">Core Chain</div><div class="val core-val">${fmt(coreTip.height)} (advancing normally)</div></div>
+          <div><div class="label">Knots Chain</div><div class="val knots-val">${fmt(knotsTipHeight)} (stalled \u2014 rejecting non-signaling blocks)</div></div>
+          <div><div class="label">Divergence</div><div class="val divergence-val">${divergence} blocks</div></div>
+          <div><div class="label">Common Ancestor</div><div class="val ancestor-val">${fmt(ancestorHeight)}</div></div>
+        </div>
+      </div>
+    </div>`;
+  alert.style.display = 'block';
 }
 
 function renderBlocksTable(blocks) {
@@ -894,14 +1063,16 @@ async function update() {
     }
 
     // Fetch secondary sources in parallel — don't let failures block us
-    const [_knotData, nodeData, monData] = await Promise.all([
+    const [_knotData, nodeData, monData, signalMap] = await Promise.all([
       fetchKnotsCarrierMap().catch(() => { dataHealth.bip110run = false; degraded.push('bip110.run carrier data'); return null; }),
       fetchNodeHistory().catch(() => { return null; }),
-      fetchMonitorData().catch(() => { dataHealth.bip110monitor = false; degraded.push('bip110monitor.com stats'); return null; })
+      fetchMonitorData().catch(() => { dataHealth.bip110monitor = false; degraded.push('bip110monitor.com stats'); return null; }),
+      fetchKnotsSignalMap().catch(() => { degraded.push('bip110.run signal-map'); return null; })
     ]);
 
     if (monData) dataHealth.bip110monitor = true;
     if (_knotData) dataHealth.bip110run = true;
+    if (!signalMap) { degraded.push('bip110.run signal-map (Knots tip data) — using fallback'); }
 
     monitorData = monData;
     const tip = blocks[0];
@@ -917,6 +1088,7 @@ async function update() {
 
     renderCoreCard(tip);
     renderKnotsCard(tip, blocks);
+    renderSplitAlert(tip);
     renderSignaling(blocks, tip.height);
     renderNodeCensus(nodeData);
     renderTopology(tip, blocks);
